@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from parlane._detection import is_gil_disabled, recommended_backend
 from parlane._errors import BackendError, ParlaneError, TaskError, TimeoutError
+from parlane._pipeline import Pipeline, pipeline
 from parlane._types import BackendType, Err, ErrorStrategy, Ok, Result
 from parlane.api import pfilter, pfor, pmap, pstarmap
 
@@ -24,6 +25,7 @@ __all__ = [
     "ErrorStrategy",
     "Ok",
     "ParlaneError",
+    "Pipeline",
     "Result",
     "TaskError",
     "TimeoutError",
@@ -31,6 +33,7 @@ __all__ = [
     "is_gil_disabled",
     "pfilter",
     "pfor",
+    "pipeline",
     "pmap",
     "pstarmap",
     "recommended_backend",
