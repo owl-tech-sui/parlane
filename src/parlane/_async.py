@@ -219,9 +219,7 @@ async def apfor(
     pbar = make_progress_bar(len(item_list), desc) if enabled else None
 
     try:
-        await _apply_async_error_strategy(
-            fn, item_list, concurrency, on_error, pbar
-        )
+        await _apply_async_error_strategy(fn, item_list, concurrency, on_error, pbar)
     finally:
         if pbar is not None:
             pbar.close()
