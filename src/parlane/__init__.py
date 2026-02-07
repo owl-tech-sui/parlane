@@ -7,6 +7,7 @@ Usage:
 
 from __future__ import annotations
 
+from parlane._async import apfilter, apfor, apmap
 from parlane._detection import is_gil_disabled, recommended_backend
 from parlane._errors import BackendError, ParlaneError, TaskError, TimeoutError
 from parlane._pipeline import Pipeline, pipeline
@@ -30,6 +31,9 @@ __all__ = [
     "TaskError",
     "TimeoutError",
     "__version__",
+    "apfilter",
+    "apfor",
+    "apmap",
     "is_gil_disabled",
     "pfilter",
     "pfor",
