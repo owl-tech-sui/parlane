@@ -77,6 +77,8 @@ class Err:
 
 Result = Ok[T] | Err
 
+ProgressType = bool | str
+
 # Callable type aliases
 MapFn = Callable[[T], U]
 FilterFn = Callable[[T], bool]

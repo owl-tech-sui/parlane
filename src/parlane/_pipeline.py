@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from parlane._types import BackendType, ErrorStrategy
+    from parlane._types import BackendType, ErrorStrategy, ProgressType
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -56,7 +56,7 @@ class Pipeline(Generic[T]):
     is unchanged and can be reused.
     """
 
-    __slots__ = ("_backend", "_on_error", "_source", "_steps", "_workers")
+    __slots__ = ("_backend", "_on_error", "_progress", "_source", "_steps", "_workers")
 
     def __init__(
         self,
@@ -66,12 +66,14 @@ class Pipeline(Generic[T]):
         workers: int = 0,
         backend: BackendType = "auto",
         on_error: ErrorStrategy = "raise",
+        progress: ProgressType = False,
     ) -> None:
         self._source = source
         self._steps = steps
         self._workers = workers
         self._backend = backend
         self._on_error = on_error
+        self._progress: ProgressType = progress
 
     def _with_step(self, step: _Step) -> Pipeline[Any]:
         """Return a new Pipeline with an additional step."""
@@ -81,6 +83,7 @@ class Pipeline(Generic[T]):
             workers=self._workers,
             backend=self._backend,
             on_error=self._on_error,
+            progress=self._progress,
         )
 
     # -- Configuration --
@@ -93,6 +96,7 @@ class Pipeline(Generic[T]):
             workers=n,
             backend=self._backend,
             on_error=self._on_error,
+            progress=self._progress,
         )
 
     def backend(self, backend: BackendType) -> Pipeline[T]:
@@ -103,6 +107,7 @@ class Pipeline(Generic[T]):
             workers=self._workers,
             backend=backend,
             on_error=self._on_error,
+            progress=self._progress,
         )
 
     def on_error(self, strategy: ErrorStrategy) -> Pipeline[T]:
@@ -113,6 +118,23 @@ class Pipeline(Generic[T]):
             workers=self._workers,
             backend=self._backend,
             on_error=strategy,
+            progress=self._progress,
+        )
+
+    def progress(self, desc: ProgressType = True) -> Pipeline[T]:
+        """Enable progress display.
+
+        Args:
+            desc: True for default progress bar, or a string description.
+                  Requires tqdm: pip install parlane[progress]
+        """
+        return Pipeline(
+            self._source,
+            steps=self._steps,
+            workers=self._workers,
+            backend=self._backend,
+            on_error=self._on_error,
+            progress=desc,
         )
 
     # -- Intermediate operations (lazy) --
@@ -155,6 +177,7 @@ class Pipeline(Generic[T]):
                     workers=self._workers,
                     backend=self._backend,
                     on_error=self._on_error,
+                    progress=self._progress,
                 )
             elif isinstance(step, _FilterStep):
                 data = pfilter(
@@ -162,6 +185,7 @@ class Pipeline(Generic[T]):
                     data,
                     workers=self._workers,
                     backend=self._backend,
+                    progress=self._progress,
                 )
             elif isinstance(step, _FlatMapStep):
                 mapped = pmap(
@@ -170,6 +194,7 @@ class Pipeline(Generic[T]):
                     workers=self._workers,
                     backend=self._backend,
                     on_error=self._on_error,
+                    progress=self._progress,
                 )
                 data = [item for sublist in mapped for item in sublist]
             elif isinstance(step, _BatchStep):

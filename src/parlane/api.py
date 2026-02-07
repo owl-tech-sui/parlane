@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Any, TypeVar, overload
 from parlane._backend import create_backend
 from parlane._config import Config
 from parlane._detection import recommended_backend
-from parlane._types import BackendType, Err, ErrorStrategy, Ok, Result
+from parlane._progress import make_progress_bar, resolve_progress
+from parlane._types import BackendType, Err, ErrorStrategy, Ok, ProgressType, Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -63,12 +64,14 @@ def _apply_error_strategy(
     items: Sequence[T],
     config: Config,
     backend_instance: Any,
+    progress_bar: Any = None,
 ) -> list[Any]:
     """Execute fn over items respecting the error strategy."""
     on_error = config.on_error
     chunksize = config.chunksize or _compute_chunksize(len(items), config.workers)
 
-    if on_error == "raise":
+    # Fast path: no progress, raise strategy — use executor.map() directly
+    if progress_bar is None and on_error == "raise":
         return list(
             backend_instance.map(
                 fn,
@@ -78,26 +81,36 @@ def _apply_error_strategy(
             )
         )
 
-    # For "skip" and "collect", we submit individual tasks to track indices
-    futures: list[tuple[int, Future[R]]] = []
+    # submit + as_completed path for progress and/or skip/collect strategies
+    from concurrent.futures import as_completed
+
+    futures_map: dict[Future[R], int] = {}
     for i, item in enumerate(items):
         future = backend_instance.submit(fn, item)
-        futures.append((i, future))
+        futures_map[future] = i
 
     results_with_index: list[tuple[int, Any]] = []
 
-    for i, future in futures:
+    for future in as_completed(futures_map):
+        idx = futures_map[future]
         try:
             result = future.result(timeout=config.timeout)
-            if on_error == "skip":
-                results_with_index.append((i, result))
+            if on_error == "skip" or on_error == "raise":
+                results_with_index.append((idx, result))
             else:  # collect
-                results_with_index.append((i, Ok(result)))
+                results_with_index.append((idx, Ok(result)))
         except Exception as exc:
-            if on_error == "skip":
-                continue
+            if on_error == "raise":
+                if progress_bar is not None:
+                    progress_bar.close()
+                raise
+            elif on_error == "skip":
+                pass
             else:  # collect
-                results_with_index.append((i, Err(exc)))
+                results_with_index.append((idx, Err(exc)))
+        finally:
+            if progress_bar is not None:
+                progress_bar.update(1)
 
     results_with_index.sort(key=lambda x: x[0])
     return [r for _, r in results_with_index]
@@ -113,6 +126,7 @@ def pmap(
     timeout: float | None = None,
     chunksize: int | None = None,
     on_error: ErrorStrategy = "raise",
+    progress: ProgressType = False,
 ) -> list[R]: ...
 
 
@@ -126,6 +140,7 @@ def pmap(
     timeout: float | None = None,
     chunksize: int | None = None,
     on_error: ErrorStrategy = "collect",
+    progress: ProgressType = False,
 ) -> list[Result[R]]: ...
 
 
@@ -138,6 +153,7 @@ def pmap(
     timeout: float | None = None,
     chunksize: int | None = None,
     on_error: ErrorStrategy = "raise",
+    progress: ProgressType = False,
 ) -> list[R] | list[Result[R]]:
     """Parallel map: apply fn to each item and return results in order.
 
@@ -149,6 +165,8 @@ def pmap(
         timeout: Per-task timeout in seconds.
         chunksize: Chunk size for process backend.
         on_error: Error strategy ("raise", "skip", "collect").
+        progress: Enable progress bar. True for default, string for description.
+                  Requires tqdm: pip install parlane[progress]
 
     Returns:
         List of results in the same order as the input items.
@@ -173,10 +191,15 @@ def pmap(
         on_error=on_error,
     )
 
+    enabled, desc = resolve_progress(progress)
+    pbar = make_progress_bar(len(item_list), desc) if enabled else None
+
     be = create_backend(config.backend, config.workers)
     try:
-        return _apply_error_strategy(fn, item_list, config, be)
+        return _apply_error_strategy(fn, item_list, config, be, progress_bar=pbar)
     finally:
+        if pbar is not None:
+            pbar.close()
         be.shutdown(wait=True)
 
 
@@ -188,6 +211,7 @@ def pfilter(
     backend: BackendType = "auto",
     timeout: float | None = None,
     chunksize: int | None = None,
+    progress: ProgressType = False,
 ) -> list[T]:
     """Parallel filter: keep items where fn returns True.
 
@@ -198,6 +222,7 @@ def pfilter(
         backend: "auto", "thread", or "process".
         timeout: Per-task timeout in seconds.
         chunksize: Chunk size for process backend.
+        progress: Enable progress bar. True for default, string for description.
 
     Returns:
         List of items for which fn returned True, in original order.
@@ -218,14 +243,41 @@ def pfilter(
         chunksize=chunksize,
     )
 
+    enabled, desc = resolve_progress(progress)
+    pbar = make_progress_bar(len(item_list), desc) if enabled else None
+
     be = create_backend(config.backend, config.workers)
     try:
-        csize = config.chunksize or _compute_chunksize(len(item_list), config.workers)
-        mask = list(
-            be.map(fn, iter(item_list), chunksize=csize, timeout=config.timeout)
-        )
+        if pbar is None:
+            # Fast path: no progress bar
+            csize = config.chunksize or _compute_chunksize(
+                len(item_list), config.workers
+            )
+            mask = list(
+                be.map(fn, iter(item_list), chunksize=csize, timeout=config.timeout)
+            )
+        else:
+            # Progress path: submit + as_completed
+            from concurrent.futures import as_completed
+
+            futures_map: dict[Future[bool], int] = {}
+            for i, item in enumerate(item_list):
+                future = be.submit(fn, item)
+                futures_map[future] = i
+
+            mask_with_index: list[tuple[int, bool]] = []
+            for future in as_completed(futures_map):
+                idx = futures_map[future]
+                mask_with_index.append((idx, future.result(timeout=config.timeout)))
+                pbar.update(1)
+
+            mask_with_index.sort(key=lambda x: x[0])
+            mask = [v for _, v in mask_with_index]
+
         return [item for item, keep in zip(item_list, mask, strict=False) if keep]
     finally:
+        if pbar is not None:
+            pbar.close()
         be.shutdown(wait=True)
 
 
@@ -238,6 +290,7 @@ def pfor(
     timeout: float | None = None,
     chunksize: int | None = None,
     on_error: ErrorStrategy = "raise",
+    progress: ProgressType = False,
 ) -> None:
     """Parallel for-each: apply fn to each item for side effects.
 
@@ -249,6 +302,7 @@ def pfor(
         timeout: Per-task timeout in seconds.
         chunksize: Chunk size for process backend.
         on_error: Error strategy ("raise", "skip", "collect").
+        progress: Enable progress bar. True for default, string for description.
 
     Examples:
         >>> results = []
@@ -267,10 +321,15 @@ def pfor(
         on_error=on_error,
     )
 
+    enabled, desc = resolve_progress(progress)
+    pbar = make_progress_bar(len(item_list), desc) if enabled else None
+
     be = create_backend(config.backend, config.workers)
     try:
-        _apply_error_strategy(fn, item_list, config, be)
+        _apply_error_strategy(fn, item_list, config, be, progress_bar=pbar)
     finally:
+        if pbar is not None:
+            pbar.close()
         be.shutdown(wait=True)
 
 
@@ -290,6 +349,7 @@ def pstarmap(
     timeout: float | None = None,
     chunksize: int | None = None,
     on_error: ErrorStrategy = "raise",
+    progress: ProgressType = False,
 ) -> list[R] | list[Result[R]]:
     """Parallel starmap: apply fn to each item with argument unpacking.
 
@@ -303,6 +363,7 @@ def pstarmap(
         timeout: Per-task timeout in seconds.
         chunksize: Chunk size for process backend.
         on_error: Error strategy ("raise", "skip", "collect").
+        progress: Enable progress bar. True for default, string for description.
 
     Returns:
         List of results in order.
@@ -322,4 +383,5 @@ def pstarmap(
         timeout=timeout,
         chunksize=chunksize,
         on_error=on_error,
+        progress=progress,
     )
