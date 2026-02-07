@@ -6,6 +6,8 @@ concurrent.futures executors with a unified interface.
 
 from __future__ import annotations
 
+import multiprocessing as mp
+import sys
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
@@ -77,11 +79,25 @@ class ThreadBackend:
         self.shutdown()
 
 
+def _get_mp_context() -> mp.context.BaseContext | None:
+    """Get a safe multiprocessing context.
+
+    On Unix/macOS, use "fork" to avoid the __main__ guard requirement
+    that "spawn" imposes. On Windows, return None (use default spawn).
+    """
+    if sys.platform == "win32":
+        return None
+    return mp.get_context("fork")
+
+
 class ProcessBackend:
     """Backend using ProcessPoolExecutor."""
 
     def __init__(self, workers: int) -> None:
-        self._executor = ProcessPoolExecutor(max_workers=workers)
+        self._executor = ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=_get_mp_context(),
+        )
 
     def map(
         self,
