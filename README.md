@@ -1,5 +1,10 @@
 # parlane
 
+[![PyPI](https://img.shields.io/pypi/v/parlane)](https://pypi.org/project/parlane/)
+[![Python](https://img.shields.io/pypi/pyversions/parlane)](https://pypi.org/project/parlane/)
+[![Tests](https://github.com/owl-tech-sui/parlane/actions/workflows/tests.yml/badge.svg)](https://github.com/owl-tech-sui/parlane/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Dead-simple parallel data processing for Python.**
 
 parlane gives you parallel `map`, `filter`, and `for-each` in one line.
@@ -20,6 +25,7 @@ results = pmap(process, items)  # That's it.
 | GIL-aware | **Auto** | No | No |
 | Dependencies | **Zero** | numpy, etc. | stdlib |
 | Type hints | **Full (py.typed)** | Partial | Partial |
+| `__main__` guard | **Not needed** | Not needed | Required (macOS/Win) |
 
 ## Install
 
@@ -45,6 +51,35 @@ pfor(save_to_db, records)
 
 # With options
 results = pmap(fetch, urls, workers=16, backend="thread", timeout=30.0)
+```
+
+## Benchmarks
+
+Measured on Apple M-series (8 cores), Python 3.12:
+
+### I/O-bound: 100 tasks x 50ms sleep
+
+| Method | Time | Speedup |
+|--------|------|---------|
+| Sequential `for` loop | 5.35s | 1.0x |
+| **parlane** `pmap` | **0.48s** | **11.2x** |
+| `concurrent.futures` | 0.49s | 11.0x |
+
+### CPU-bound: 200 tasks x heavy math
+
+| Method | Time | Speedup |
+|--------|------|---------|
+| Sequential `for` loop | 1.26s | 1.0x |
+| **parlane** `pmap` | **0.28s** | **4.5x** |
+| `concurrent.futures` | 0.29s | 4.4x |
+
+**Zero overhead.** parlane uses `concurrent.futures` under the hood with smart defaults
+that match or beat manual configuration.
+
+Run benchmarks yourself:
+
+```bash
+python benchmarks/bench_vs_stdlib.py
 ```
 
 ## API
@@ -86,7 +121,7 @@ results = pstarmap(pow, [(2, 10), (3, 5), (10, 3)])
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `workers` | `int` | CPU count | Number of parallel workers |
+| `workers` | `int` | auto | Thread: `cpu+4`, Process: `cpu` (capped at item count) |
 | `backend` | `str` | `"auto"` | `"auto"`, `"thread"`, or `"process"` |
 | `timeout` | `float` | `None` | Per-task timeout in seconds |
 | `chunksize` | `int` | `None` | Chunk size (process backend) |
@@ -125,8 +160,9 @@ print(recommended_backend())  # "thread" or "process"
 2. **Choose backend** automatically:
    - GIL disabled -> `ThreadPoolExecutor` (true parallelism, no serialization overhead)
    - GIL enabled -> `ProcessPoolExecutor` (bypass GIL via multiprocessing)
-3. **Execute** with the chosen backend
-4. **Return results** in input order
+3. **Pick optimal worker count**: threads get `cpu+4`, processes get `cpu` (never more than items)
+4. **Execute** with the chosen backend
+5. **Return results** in input order
 
 Users can override with `backend="thread"` or `backend="process"`.
 
@@ -146,6 +182,9 @@ ruff format --check src/ tests/
 
 # Type check
 mypy src/parlane/ --strict
+
+# Benchmarks
+python benchmarks/bench_vs_stdlib.py
 ```
 
 ## License
