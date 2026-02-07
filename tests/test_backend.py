@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
-from parlane._backend import ProcessBackend, ThreadBackend, create_backend
+from parlane._backend import (
+    ProcessBackend,
+    ThreadBackend,
+    _get_mp_context,
+    create_backend,
+)
 from parlane._errors import BackendError
 
 
@@ -71,3 +78,16 @@ class TestProcessBackend:
         with ProcessBackend(2) as be:
             result = list(be.map(_square, iter([1, 2, 3])))
         assert result == [1, 4, 9]
+
+
+class TestGetMpContext:
+    """Tests for _get_mp_context helper."""
+
+    def test_windows_returns_none(self) -> None:
+        with patch("parlane._backend.sys.platform", "win32"):
+            assert _get_mp_context() is None
+
+    def test_non_windows_returns_fork(self) -> None:
+        with patch("parlane._backend.sys.platform", "darwin"):
+            ctx = _get_mp_context()
+            assert ctx is not None

@@ -26,17 +26,21 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+progress = [
+    "tqdm>=4.60",
+]
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-timeout>=2.0",
+    "pytest-asyncio>=0.23",
 ]
 lint = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
 dev = [
-    "parlane[test,lint]",
+    "parlane[test,lint,progress]",
 ]
 
 [project.urls]
@@ -87,6 +91,11 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[[tool.mypy.overrides]]
+module = "tqdm.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 60
+asyncio_mode = "strict"

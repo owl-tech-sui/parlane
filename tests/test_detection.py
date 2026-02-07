@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import sysconfig
 from unittest.mock import patch
 
 from parlane._detection import is_gil_disabled, recommended_backend
@@ -33,6 +34,21 @@ class TestIsGilDisabled:
         with patch.object(sys, "_is_gil_enabled", create=True, return_value=False):
             is_gil_disabled.cache_clear()
             assert is_gil_disabled() is True
+
+    def test_buildtime_check_gil_disabled(self) -> None:
+        # No runtime check on 3.12; simulate build-time Py_GIL_DISABLED=1
+        with patch.object(sysconfig, "get_config_var", return_value="1"):
+            is_gil_disabled.cache_clear()
+            # On 3.12 _is_gil_enabled doesn't exist, so falls through to build-time
+            if sys.version_info < (3, 13):
+                assert is_gil_disabled() is True
+
+    def test_buildtime_check_gil_enabled(self) -> None:
+        # No runtime check on 3.12; simulate build-time Py_GIL_DISABLED=0
+        with patch.object(sysconfig, "get_config_var", return_value="0"):
+            is_gil_disabled.cache_clear()
+            if sys.version_info < (3, 13):
+                assert is_gil_disabled() is False
 
     def test_cache_works(self) -> None:
         is_gil_disabled.cache_clear()

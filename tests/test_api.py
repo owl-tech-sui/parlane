@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from parlane import Err, Ok, pfilter, pfor, pmap, pstarmap
+from parlane.api import _starmap_wrapper
 from tests.conftest import add, double, failing_fn, is_even, is_positive, square
 
 
@@ -163,3 +164,27 @@ class TestPstarmap:
         assert isinstance(result[1], Err)
         assert isinstance(result[2], Ok)
         assert result[2].unwrap() == 2.0
+
+    def test_dict_kwargs_unpacking(self) -> None:
+        def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting}, {name}"
+
+        result = pstarmap(
+            greet,
+            [{"name": "Alice", "greeting": "Hi"}, {"name": "Bob"}],
+            backend="thread",
+        )
+        assert result == ["Hi, Alice", "Hello, Bob"]
+
+
+class TestStarmapWrapper:
+    """Tests for _starmap_wrapper internal."""
+
+    def test_tuple_unpacking(self) -> None:
+        assert _starmap_wrapper(add, (2, 3)) == 5
+
+    def test_dict_unpacking(self) -> None:
+        def kw(a: int, b: int) -> int:
+            return a - b
+
+        assert _starmap_wrapper(kw, {"a": 10, "b": 3}) == 7

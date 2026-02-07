@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.3.0] - 2026-02-07
+
+### Added
+- **Async API**: `apmap`, `apfilter`, `apfor` for native async parallel processing
+  - `asyncio.Semaphore`-based concurrency control (no executor needed)
+  - Same error strategies as sync API (`raise`, `skip`, `collect`)
+  - Default concurrency: `min(32, n_items)`
+- **Progress bar support**: real-time progress display via tqdm
+  - `progress` parameter on all sync and async functions (`True`, `False`, or description string)
+  - `pipeline(...).progress("desc")` for pipeline progress
+  - Optional dependency: `pip install parlane[progress]`
+  - Zero overhead when disabled — fast `executor.map()` path preserved
+- `ProgressType` type alias in `_types.py`
+- `[progress]` optional dependency group in `pyproject.toml`
+
+### Changed
+- `_apply_error_strategy` uses `submit() + as_completed()` when progress bar is active
+  for real-time updates (falls back to `executor.map()` when progress is off)
+- Pipeline `__slots__` extended with `_progress`; all config methods propagate progress state
+
+## [0.2.0] - 2026-02-07
+
+### Added
+- **Pipeline API**: lazy, immutable pipeline composition engine
+  - Intermediate operations: `.map()`, `.filter()`, `.flat_map()`, `.batch()`
+  - Terminal operations: `.collect()`, `.reduce()`, `.count()`, `.first()`
+  - Configuration: `.workers()`, `.backend()`, `.on_error()`
+  - Immutable design — each operation returns a new Pipeline instance
+
 ## [0.1.0] - 2026-02-07
 
 ### Added

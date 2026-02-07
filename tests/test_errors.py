@@ -68,6 +68,11 @@ class TestErr:
         assert Err(ValueError("a")) != Err(TypeError("a"))
         assert Err(ValueError("a")) != "not an Err"
 
+    def test_hash(self) -> None:
+        assert hash(Err(ValueError("a"))) == hash(Err(ValueError("a")))
+        s = {Err(ValueError("a")), Err(ValueError("a")), Err(ValueError("b"))}
+        assert len(s) == 2
+
 
 class TestTaskError:
     """Tests for TaskError."""
