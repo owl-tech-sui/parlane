@@ -88,6 +88,11 @@ class TestGetMpContext:
             assert _get_mp_context() is None
 
     def test_non_windows_returns_fork(self) -> None:
-        with patch("parlane._backend.sys.platform", "darwin"):
+        mock_ctx = object()
+        with (
+            patch("parlane._backend.sys.platform", "darwin"),
+            patch("parlane._backend.mp.get_context", return_value=mock_ctx) as mock_get,
+        ):
             ctx = _get_mp_context()
-            assert ctx is not None
+            assert ctx is mock_ctx
+            mock_get.assert_called_once_with("fork")
