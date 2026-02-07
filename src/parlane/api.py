@@ -7,10 +7,12 @@ processes on standard Python.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from parlane._backend import create_backend
 from parlane._config import Config
+from parlane._detection import recommended_backend
 from parlane._types import BackendType, Err, ErrorStrategy, Ok, Result
 
 if TYPE_CHECKING:
@@ -19,6 +21,31 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+_MAX_WORKERS = 32
+
+
+def _resolve_workers(workers: int, backend: BackendType, n_items: int) -> int:
+    """Compute optimal worker count based on backend and task count.
+
+    - Thread backend: min(32, cpu+4, n_items) — I/O-bound benefits from
+      more threads than CPU cores.
+    - Process backend: min(cpu, n_items) — CPU-bound gains nothing beyond
+      physical core count.
+    - Never create more workers than items.
+    """
+    if workers > 0:
+        return workers
+
+    resolved = backend if backend != "auto" else recommended_backend()
+    cpu = os.cpu_count() or 4
+
+    if resolved == "thread":
+        default = min(_MAX_WORKERS, cpu + 4)
+    else:
+        default = min(_MAX_WORKERS, cpu)
+
+    return min(default, max(1, n_items))
 
 
 def _compute_chunksize(n_items: int, workers: int) -> int:
@@ -137,8 +164,9 @@ def pmap(
     if not item_list:
         return []
 
+    resolved_workers = _resolve_workers(workers, backend, len(item_list))
     config = Config(
-        workers=workers,
+        workers=resolved_workers,
         backend=backend,
         timeout=timeout,
         chunksize=chunksize,
@@ -182,8 +210,9 @@ def pfilter(
     if not item_list:
         return []
 
+    resolved_workers = _resolve_workers(workers, backend, len(item_list))
     config = Config(
-        workers=workers,
+        workers=resolved_workers,
         backend=backend,
         timeout=timeout,
         chunksize=chunksize,
@@ -229,8 +258,9 @@ def pfor(
     if not item_list:
         return
 
+    resolved_workers = _resolve_workers(workers, backend, len(item_list))
     config = Config(
-        workers=workers,
+        workers=resolved_workers,
         backend=backend,
         timeout=timeout,
         chunksize=chunksize,
